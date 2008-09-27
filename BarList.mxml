@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:HBox xmlns:mx="http://www.adobe.com/2006/mxml" xmlns:display="flash.display.*" verticalAlign="middle"
+	useHandCursor="true" buttonMode="true" mouseChildren="false" click="onClick(event)"> 
+	<mx:Script>
+		<![CDATA[
+			import flash.utils.escapeMultiByte;
+			import mx.events.MenuEvent;
+			import mx.controls.Menu;
+			import mx.core.Application;
+
+			[Embed(source="assets/vkontakte.png")]
+			[Bindable]
+			static private var vkontakte:Class;
+			
+			[Embed(source="assets/lastfm.png")]
+			[Bindable]
+			static private var lastfm:Class; 
+			
+			[Embed(source="assets/youtube.png")]
+			[Bindable]
+			static private var youtube:Class;
+			 
+			[Bindable]
+			public var item:XML;
+			
+			[Bindable]
+			public var color:uint;
+			
+			[Bindable]
+			public var l_pos:String;
+			[Bindable]
+			public var l_name:String = "name";
+			[Bindable]
+			public var l_stat:String = "playcount";
+			[Bindable]
+			public var l_prename:String = null;
+		
+			override protected function updateDisplayList(unscaledWidth:Number, unscaledHeight:Number):void
+			{
+				super.updateDisplayList(unscaledWidth, unscaledHeight);
+				graphics.beginFill(0xffffff);
+				graphics.drawRect(0, 0, unscaledWidth, unscaledHeight);
+				graphics.endFill();
+				graphics.beginFill(color);
+				graphics.drawRect(lbox.width, 0, unscaledWidth - lbox.width - rbox.width , unscaledHeight);
+				graphics.endFill();
+				graphics.beginFill(color);
+				this.graphics.drawCircle(unscaledWidth - rbox.width, rbox.height / 2, rbox.height / 2);
+				graphics.endFill();
+			}
+			
+			static private function two(x:Number):String
+			{
+				if (x < 10)
+					return "0" + x;
+				return String(x);
+			}
+			
+			static public function time(dt:Date):String 
+			{
+				return dt.getHours() + ":" + two(dt.getMinutes()) + ":" + two(dt.getSeconds());	
+			}
+			
+			static public function date(dt:Date):String
+			{
+				return two(dt.getDate()) + "." + two(dt.getMonth() + 1) + "." + two(dt.getFullYear() % 100);
+			}
+			
+			static public function diff_date(diff:Number) : String
+			{
+				var days:int = int(diff / (24 * 60 * 60 * 1000));
+				diff -= days * 24 * 60 * 60 * 1000;
+				var hours:int = int(diff / (60 * 60 * 1000));
+				diff -= hours * 60 * 60 * 1000;
+				var mins:int = int(diff / (60 * 1000));
+				diff -= mins * 60 * 1000;
+				var secs:int = int(diff / 1000);
+				if (days)
+					return days + "д, " + hours + "ч и " + mins + "м назад"
+				if (hours)
+					return hours + "ч и " + mins + "м назад"
+				//if (mins == 1 || (((mins % 10) == 1) && (mins > 20)))
+				//	return mins + " минуту назад"
+				//if ((mins < 5) || ((mins > 20) && ((mins % 10) < 5) && ((mins % 10) > 1)))
+				//	return mins + " минуты назад"
+				if (mins)
+					return mins + " минут назад"
+				return "сейчас" 
+			}
+			
+			static public function to_date(uts:Number):String
+			{
+				var dt:Date = new Date(uts * 1000);
+				var diff:Number = Number(new Date()) - uts * 1000;
+				if (diff < 24 * 60 * 60 * 1000)
+					return diff_date(diff);
+				return date(dt) + " " + time(dt);	
+			}
+			
+			private const menuData:Array = [
+            	{ label : "Перейти на last.fm", icon : lastfm},
+            	{ label : "Поиск ВКонтакте Аудио", icon : vkontakte},
+            	{ label : "Поиск ВКонтакте Видео", icon : vkontakte},
+            	{ label : "Поиск на YouTube", icon : youtube},
+            	{ type  : "separator"},     
+            	{ label : "Отменить"}
+			]
+			private function onClick(event:MouseEvent):void
+			{
+				
+				var myMenu:Menu = Menu.createMenu(null, menuData, false);
+				myMenu.addEventListener(MenuEvent.ITEM_CLICK, itemClickInfo);
+				var x:int = event.stageX;
+				var y:int = event.stageY;
+				myMenu.show(x, y);
+				while (x + myMenu.width > Application.application.width)
+					x -= myMenu.width;
+				while (y + myMenu.height > Application.application.height)
+					y -= myMenu.height;
+				if ((x != event.stageX) || (y != event.stageY)) {
+					myMenu.move(x, y);
+				}
+			}
+			
+			private function itemClickInfo(event:MenuEvent):void {
+				var q:String = l_prename ? item[l_prename] + ' ' + item[l_name] : item[l_name];
+				var req:URLRequest = null;
+				if (event.index == 0) {
+					var url:String = String(item["url"]);
+					//url = url.replace("www.last.fm", "www.lastfm.ru");
+					req = new URLRequest(url);
+				} 
+				if ((event.index == 1) || (event.index == 2)) {
+					System.useCodePage = true; // to proper encoding of russian characters
+					var p:String = "?act=search&tabs=1&field=3&q=" + escapeMultiByte(q); 
+					if (event.index == 1)
+						req = new URLRequest("http://vkontakte.ru/audio.php" + p);
+					else
+						req = new URLRequest("http://vkontakte.ru/video.php" + p);
+				}
+				if (event.index == 3) {
+					System.useCodePage = false; // encode in utf8
+					var params:URLVariables = new URLVariables();
+					params.search_query = q;
+					req = new URLRequest("http://youtube.com/results");
+					req.data = params;
+				}
+				if (req) {
+					req.method = "GET";
+					navigateToURL(req, "_blank");
+				}
+        	}
+		]]>
+	</mx:Script>
+	<mx:Box id="lbox" width="{this.height/2}"/>
+	<mx:Label text="{l_pos ? item[l_pos] + '. ' : ''}{l_prename ? item[l_prename] + ' - ' + item[l_name] : item[l_name]}" textAlign="left" width="375"/>
+	<mx:Label text="{l_stat != 'uts' ? item[l_stat] : to_date(Number(item.date.@uts))}" textAlign="right" width="100%"/>
+	
+	<mx:Box id="rbox" width="{this.height}" height="{this.height}"/>
+</mx:HBox>
