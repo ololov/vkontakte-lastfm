@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" layout="absolute" creationComplete="run()" xmlns:display="flash.display.*" xmlns:local="*" 	width="550" height="400" backgroundColor="0xffffff" xmlns:utils="flash.utils.*">
+<mx:Script>
+	<![CDATA[
+		import mx.rpc.events.FaultEvent;
+		import mx.collections.XMLListCollection;
+		import mx.controls.Alert;
+		import ru.vkontakte.VKApp;
+		import flash.events.Event;
+	
+		private const API_ID:int = 0;         // PLACE API ID HERE
+		private const API_SECRET:String = ""; // PLACE SECRET CODE HERE
+		private const DEBUG_MODE:Boolean = false;
+		
+		[Bindable]
+		private var login:String = null;
+		[Bindable]
+		private var viewer_login:String = null;
+		
+		[Bindable]
+		private var user_name:String = "";
+		[Bindable]
+		private var user_id:int = 0;
+		
+		private var vk:VKApp;	
+		private var timer:Timer = null;
+		private function run() : void 
+		{
+			vk = new VKApp(this.parameters, API_ID, API_SECRET, DEBUG_MODE);
+			if (!vk.is_valid) {
+				Alert.show("Эта копия приложения была украдена, оригинальное приложение имеет id = " + id);
+			}
+			stack.selectedChild = vk.me ? editor_mode : view_mode;
+			if (!vk.me) {
+				vk.user.getVariable(1281, function (xml:XML):void {
+					if (xml.name() == "response") {
+						user_id = vk.user_id;
+						user_name = String(xml.toString());
+					} else {
+						Alert.show("Ошибка: " + xml.toString());
+					}
+				});
+				vk.viewer.getVariable(1300, function (xml:XML):void {
+					if (xml.name() == "response") {
+						viewer_login = String(xml.toString());
+						fetchCompare();
+					} else {
+						Alert.show("Ошибка: " + xml.toString());
+					}
+				});
+			}
+			vk.user.getVariable(1300, function (xml:XML):void {
+				if (xml.name() == "response") {
+					login = xml.toString();
+					fetchStats();
+					fetchCompare();
+				} else {
+					Alert.show("Ошибка: " + xml.toString());
+				}
+			});
+		}
+		
+		[ArrayElementType("Function")]
+		private var fetch_array:Array = new Array(7);
+		
+		[ArrayElementType("Boolean")]
+		private var fetched: Array = new Array(7);
+		
+		private function fetchCompare():void
+		{
+			if (!login || !viewer_login)
+				return;
+			tasteometer.send();
+		}
+		
+		private function fetchStats():void
+		{
+			if (!login)	return;
+			profile_info.send();
+
+			fetch_array = [
+				recent_tracks.send,
+				top_artists.send,
+				top_albums.send,
+				top_tracks.send,
+				week_artists.send,
+				week_albums.send,
+				week_tracks.send
+			];
+			fetched = new Array(7);
+			fetchIndexed(stat_combo.selectedIndex);
+			
+			if (!timer) {
+				timer = new Timer(60 * 1000);
+				timer.addEventListener(TimerEvent.TIMER, onTimer);
+				timer.start();
+			}
+		}
+		
+		private function onComboChange(event:Event):void
+		{
+			var idx:int = event.currentTarget.selectedIndex;
+			main_stack.selectedIndex = idx;
+			fetchIndexed(idx);
+		}
+		
+		private function fetchIndexed(idx:int, use_cache:Boolean=true):void
+		{
+			if (use_cache && fetched[idx] && fetch_array[idx]) 
+				return;
+			fetched[idx] = true;
+			fetch_array[idx]();
+		}
+		
+		private function to_date(dstr:String):String
+		{
+			var d:Date = new Date(Number(dstr) * 1000);
+			var month:Array = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+			return d.getDate() + "." + month[d.getMonth()] + "." + d.getFullYear();
+		}
+		
+		private function saveLogin():void
+		{
+			if (!vk.me)
+				return; 
+			save_btn.enabled = false;
+			save_btn.label = "Сохранение";
+			var new_login:String = login_input.text; 
+			vk.viewer.putVariable(1300, new_login, function(xml:XML):void {
+				if (xml.name() == "response") {
+					save_btn.label = "Сохранить";  
+					login = new_login;
+					fetchStats();
+				} else {
+					Alert.show("Ошибка: " + xml.toString());
+				}
+			});
+		}
+		
+		private function onFault(event:FaultEvent):void
+		{
+			Alert.show("Пользователь с именем " + login + " не найден на сайте Last.fm");
+		}
+		
+		private function onTimer(event:TimerEvent):void
+		{
+			fetchIndexed(0, false);
+		}
+		
+		private function skip_dup_tracks(xml:XML):Array
+		{
+			var res:Array = new Array();
+			var uts:String = null;
+			for (var i:int = 0; i < xml.track.length(); i++) {
+				var cur:XML = XML(xml.track[i]); 
+				if (cur.date.@uts != uts) {
+					uts = cur.date.@uts;
+					res.push(cur.copy());
+				}
+			}
+			return res;
+		}
+		
+		private function userToolTip(xml:XML):String {
+			return xml.realname.toString() + ", " + xml.age.toString() + "\n" + xml.country.toString() + "\nПрослушано: " + xml.playcount.toString();				
+		}
+	]]>
+</mx:Script>
+	<mx:HTTPService id="tasteometer" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/tasteometer.xml?with=' + viewer_login}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="profile_info" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/profile.xml'}" fault="onFault(event);" showBusyCursor="true"/>
+	<mx:HTTPService id="recent_tracks" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/recenttracks.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="top_artists" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/topartists.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="top_albums" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/topalbums.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="top_tracks" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/toptracks.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="week_artists" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/weeklyartistchart.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="week_albums" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/weeklyalbumchart.xml'}" fault=";" showBusyCursor="true"/>
+	<mx:HTTPService id="week_tracks" method="GET" resultFormat="xml" url="{'http://ws.audioscrobbler.com/1.0/user/' + login + '/weeklytrackchart.xml'}" fault=";" showBusyCursor="true"/>
+
+	<mx:VBox width="100%" height="100%">
+		<mx:HBox width="100%" horizontalAlign="center" verticalAlign="middle">
+			<mx:Image id="img" source="{XML(profile_info.lastResult).avatar.toString()}" height="75" width="75" 
+				useHandCursor="true" buttonMode="true" mouseChildren="false" 
+				click="if (login) {navigateToURL(new URLRequest('http://lastfm.ru/user/' + login));}" 
+				toolTip="{userToolTip(XML(profile_info.lastResult))}"/>
+			<mx:VBox horizontalAlign="center">
+				<mx:ViewStack id="stack" width="{550-img.width-25}">
+					<mx:HBox id="editor_mode" width="{550-img.width-25}" height="50%" horizontalAlign="center" horizontalScrollPolicy="off">
+						<mx:Label text="Ваш логин на Last.fm:"/>
+						<mx:TextInput id="login_input" text="{login != null ? login : 'Загружается...'}" change="save_btn.enabled=true;" enabled="{login != null}"/>
+						<mx:Button id="save_btn" label="Сохранить" enabled="false" click="saveLogin();"/>
+					</mx:HBox>
+					<mx:HBox id="view_mode" width="{550-img.width-25}" height="50%" horizontalAlign="center" horizontalScrollPolicy="off">
+						<mx:Label text="{user_name}" useHandCursor="true" buttonMode="true" mouseChildren="false" 
+							click="if (user_id) {navigateToURL(new URLRequest('http://vkontakte.ru/id' + user_id))}"/>
+						<mx:Label text="на Last.fm:"/>
+						<mx:Label text="{login != null ? login : 'Загружается...'}" useHandCursor="true" buttonMode="true" mouseChildren="false" 
+							click="if (login) {navigateToURL(new URLRequest('http://lastfm.ru/user/' + login));}"/>
+					</mx:HBox>
+				</mx:ViewStack>
+				<mx:HBox width="{550-img.width-25}">
+					<mx:ComboBox id="stat_combo" change="onComboChange(event);" rowCount="7" height="50%" enabled="{login != null}">
+						<mx:ArrayCollection>
+							<mx:String>Последние треки</mx:String>
+							<mx:String>Любимые артисты</mx:String>
+							<mx:String>Любимые альбомы</mx:String>
+							<mx:String>Любимые треки</mx:String>
+							<mx:String>Артисты недели</mx:String>
+							<mx:String>Альбомы недели</mx:String>
+							<mx:String>Треки недели</mx:String>
+						</mx:ArrayCollection>
+					</mx:ComboBox>
+					<local:Taste id="taste" width="100%" height="100%" 
+						taste="{Number(XML(tasteometer.lastResult).score)}" 
+						artists="{XML(tasteometer.lastResult).commonArtists[0].artist}" 
+						visible="{Boolean(viewer_login)}"/>		
+				</mx:HBox>
+			</mx:VBox>
+		</mx:HBox>
+		<mx:ViewStack id="main_stack" width="100%" height="100%">
+			<mx:VBox horizontalAlign="center">
+				<mx:List dataProvider="{skip_dup_tracks(XML(recent_tracks.lastResult))}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="" l_prename="artist" l_name="name" l_stat="uts" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:List dataProvider="{XML(top_artists.lastResult).artist}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="rank" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:List dataProvider="{XML(top_albums.lastResult).album}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="rank" l_prename="artist" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:List dataProvider="{XML(top_tracks.lastResult).track}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="rank" l_prename="artist" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:Label text="{'Данные собраны с ' + to_date(XML(week_artists.lastResult).@from) + ' по ' + to_date(XML(week_artists.lastResult).@to)}"/>
+				<mx:List dataProvider="{XML(week_artists.lastResult).artist}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="chartposition" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:Label text="{'Данные собраны с ' + to_date(XML(week_albums.lastResult).@from) + ' по ' + to_date(XML(week_albums.lastResult).@to)}"/>
+				<mx:List dataProvider="{XML(week_albums.lastResult).album}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="chartposition" l_prename="artist" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+			<mx:VBox horizontalAlign="center">
+				<mx:Label text="{'Данные собраны с ' + to_date(XML(week_tracks.lastResult).@from) + ' по ' + to_date(XML(week_tracks.lastResult).@to)}"/>
+				<mx:List dataProvider="{XML(week_tracks.lastResult).track}" width="100%" height="100%" selectable="false" borderStyle="none">
+					<mx:itemRenderer>
+						<mx:Component>
+							<local:BarList l_pos="chartposition" l_prename="artist" item="{XML(data)}" color="0xcccccc" height="20"/>
+						</mx:Component>
+					</mx:itemRenderer>
+				</mx:List>
+			</mx:VBox>
+		</mx:ViewStack>
+	</mx:VBox>
+</mx:Application>
